@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #0A0A0B;
+  font-family: 'Inter', sans-serif;
+  color: #EDEDEF;
+  margin: 0;
+  padding: 0;
+}
+
+code, pre, .mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #111113; }
+::-webkit-scrollbar-thumb { background: #2A2A2E; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3A3A3E; }
+
+/* highlight.js dark theme overrides */
+.hljs {
+  background: transparent !important;
+  color: #EDEDEF;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.hljs-keyword { color: #C792EA; }
+.hljs-string { color: #C3E88D; }
+.hljs-comment { color: #546E7A; }
+.hljs-function { color: #82AAFF; }
+.hljs-number { color: #F78C6C; }
+.hljs-built_in { color: #FFCB6B; }
+.hljs-title { color: #82AAFF; }
+.hljs-params { color: #EDEDEF; }
+.hljs-attr { color: #89DDFF; }
+.hljs-variable { color: #EDEDEF; }
+.hljs-operator { color: #89DDFF; }
+.hljs-punctuation { color: #A0A0A8; }
