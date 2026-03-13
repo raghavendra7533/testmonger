@@ -11,6 +11,7 @@ import { generateTest, generatePRBody, generateTestPath } from "./generator/test
 import { validateTest, formatValidationResult, ValidatorOptions } from "./validator/test-validator";
 import { loadConfig } from "./config/loader";
 import { AgentConfig } from "./config/types";
+import { capturePageContext, executeTestWithMCP, mcpBrowser } from "./mcp";
 
 dotenv.config();
 
@@ -20,6 +21,7 @@ interface RunOptions {
   dryRun?: boolean;
   skipValidation?: boolean;
   runTest?: boolean;
+  useMcp?: boolean;
 }
 
 /**
@@ -27,7 +29,7 @@ interface RunOptions {
  * All platform-specific behaviour is driven by the loaded AgentConfig.
  */
 async function runAgent(options: RunOptions): Promise<void> {
-  const { sourcePRUrl, configPath, dryRun = false, skipValidation = false, runTest = false } = options;
+  const { sourcePRUrl, configPath, dryRun = false, skipValidation = false, runTest = false, useMcp = false } = options;
 
   // Load config: --config file → .pr-agent.json → env vars → defaults
   const config: AgentConfig = loadConfig(configPath);
@@ -43,6 +45,7 @@ async function runAgent(options: RunOptions): Promise<void> {
   console.log(`  Base URL      : ${config.baseUrl}`);
   console.log(`  Features      : ${config.featureMappings.length} mapping(s) configured`);
   console.log(`  Output dir    : ${config.outputDirectory}`);
+  console.log(`  MCP mode      : ${useMcp ? "enabled" : "disabled"}`);
   console.log();
 
   try {
@@ -67,6 +70,27 @@ async function runAgent(options: RunOptions): Promise<void> {
     console.log(`  Changed functions: ${analysis.testContext.changedFunctions.length}`);
     console.log(`  Related selectors: ${analysis.testContext.relatedSelectors.length}`);
     console.log(`  Mode: ${analysis.testContext.isStandaloneApp ? "standalone" : "authenticated"}`);
+
+    // Step 3.5 (MCP): Capture live page accessibility snapshot before generation
+    if (useMcp && analysis.affectedFeatures.length > 0) {
+      console.log("\nStep 3.5: Capturing live page snapshot via Playwright MCP...");
+      try {
+        // Pick the entry URL of the first detected feature mapping, fall back to baseUrl
+        const firstFeature = config.featureMappings.find(
+          (m) => analysis.affectedFeatures.includes(m.name) || analysis.affectedFeatures.includes(m.id)
+        );
+        const featureUrl = firstFeature?.entryUrl
+          ? `${config.baseUrl.replace(/\/$/, "")}${firstFeature.entryUrl}`
+          : config.baseUrl;
+
+        const mcpCtx = await capturePageContext(featureUrl, config);
+        (analysis as any).mcpContext = mcpCtx;
+        console.log(`  Snapshot captured from: ${mcpCtx.url}`);
+      } catch (mcpErr) {
+        console.warn("  [MCP] Warning: Could not capture page snapshot. Continuing without it.");
+        console.warn(" ", mcpErr);
+      }
+    }
 
     // Step 4: Generate test code
     console.log("\nStep 4: Generating test code...");
@@ -100,6 +124,29 @@ async function runAgent(options: RunOptions): Promise<void> {
       console.log("\n✅ Validation passed! Proceeding...");
     } else {
       console.log("\nStep 5: Validation skipped (--skip-validation flag)");
+    }
+
+    // Step 5.5 (MCP): Execute test via Claude + Playwright MCP agentic loop + auto-heal
+    if (useMcp && runTest) {
+      console.log("\nStep 5.5: Executing test via Playwright MCP agentic loop...");
+      try {
+        const execResult = await executeTestWithMCP(testCode, config.baseUrl, config);
+
+        if (execResult.healedTestCode) {
+          testCode = execResult.healedTestCode;
+          console.log(`  [MCP] Auto-healed ${execResult.retryCount} step(s) — using corrected test code.`);
+        }
+
+        const statusIcon = execResult.success ? "✅" : "⚠️";
+        console.log(`\n${statusIcon} MCP Execution: ${execResult.success ? "PASSED" : "completed with issues"}`);
+        for (const step of execResult.stepResults) {
+          const icon = step.status === "passed" ? "✅" : step.status === "healed" ? "🔧" : "❌";
+          console.log(`  ${icon} ${step.description}${step.error ? ` — ${step.error}` : ""}`);
+        }
+      } catch (mcpErr) {
+        console.warn("  [MCP] Warning: MCP execution failed. Continuing with commit.");
+        console.warn(" ", mcpErr);
+      }
     }
 
     // Dry run — save locally and exit
@@ -179,6 +226,10 @@ Options:
   --dry-run          Generate test locally without creating a PR
   --skip-validation  Skip TypeScript syntax validation
   --run-test         Execute the generated test with Playwright during validation
+  --use-mcp          Enable Playwright MCP integration:
+                       - Snapshot live page before generation (real selectors)
+                       - Execute test via Claude+MCP agentic loop (with --run-test)
+                       - Auto-heal failing selectors (up to 3 retries)
   --help             Show this help
 
 Config File:
@@ -227,6 +278,7 @@ Examples:
   const dryRun = args.includes("--dry-run");
   const skipValidation = args.includes("--skip-validation");
   const runTest = args.includes("--run-test");
+  const useMcp = args.includes("--use-mcp");
 
   // Parse --config flag (supports both "--config path" and "--config=path")
   let configPath: string | undefined;
@@ -238,7 +290,12 @@ Examples:
     if (inlineArg) configPath = inlineArg.split("=").slice(1).join("=");
   }
 
-  await runAgent({ sourcePRUrl: prUrl, configPath, dryRun, skipValidation, runTest });
+  try {
+    await runAgent({ sourcePRUrl: prUrl, configPath, dryRun, skipValidation, runTest, useMcp });
+  } finally {
+    // Always disconnect MCP browser if it was started
+    if (useMcp) await mcpBrowser.disconnect();
+  }
 }
 
 main().catch(console.error);

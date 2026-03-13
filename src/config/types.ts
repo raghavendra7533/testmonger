@@ -80,6 +80,17 @@ export interface AgentConfig {
     screenshotDiffPixels: number;
     screenshotThreshold: number;
   };
+
+  /**
+   * When true, the CLI pipeline will:
+   *  1. Navigate to the affected feature URL before generation and snapshot the
+   *     accessibility tree (feeds real selectors to Claude).
+   *  2. Execute the generated test via the Claude + Playwright MCP agentic loop.
+   *  3. Auto-heal failing steps by observing the live page and patching selectors.
+   *
+   * Activated by the --use-mcp CLI flag (overrides this value to true).
+   */
+  useMcp?: boolean;
 }
 
 export const DEFAULT_AGENT_CONFIG: AgentConfig = {
@@ -118,4 +129,5 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
     screenshotDiffPixels: 100,
     screenshotThreshold: 0.2,
   },
+  useMcp: false,
 };

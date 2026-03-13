@@ -63,8 +63,15 @@ export async function generateTest(
     }
   }
 
+  // If a live accessibility snapshot was captured via MCP (--use-mcp), include it
+  // so Claude uses real selectors rather than guessing from diff text.
+  const mcpContext = (analysis as any).mcpContext as { snapshot: string; url: string } | undefined;
+  const mcpSection = mcpContext
+    ? `\nLIVE PAGE SNAPSHOT (accessibility tree captured from ${mcpContext.url}):\n${mcpContext.snapshot}\n\nUse element roles, names, and accessible text from this snapshot to write precise locators.\nPrefer getByRole/getByLabel/getByText over guessed attribute selectors.\n`
+    : "";
+
   const prompt = `You are a Lead SDET. Based on the following Git Diffs and Full File Contexts from a PR, generate a comprehensive, robust Playwright E2E test in TypeScript.
-  
+
 RULES:
 1. Use Page Object Model (POM) patterns where applicable or structure the test cleanly.
 2. Focus on verifying the user impact of the changes described in the PR.
@@ -77,8 +84,7 @@ PR Title: ${prInfo.title}
 PR Description: ${prInfo.body || "No description provided."}
 
 CHANGES AND CONTEXT:
-${combinedContext}
-`;
+${combinedContext}${mcpSection}`;
 
   try {
     const response = await anthropic.messages.create({

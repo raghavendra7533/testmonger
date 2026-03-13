@@ -13,6 +13,8 @@
  * Default port: 3002  (override with PORT env var)
  */
 
+require('dotenv').config();
+
 const http = require('http');
 const { exec } = require('child_process');
 const https = require('https');
@@ -26,7 +28,7 @@ const ROOT = __dirname;
 // ── CORS helper ───────────────────────────────────────────────────────────────
 function setCors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 }
 
@@ -231,6 +233,41 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify(result));
       } catch (err) {
         console.error('[run-test] Error:', err.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // POST /run-test-mcp  →  execute a test via Claude + Playwright MCP agentic loop
+  if (pathname === '/run-test-mcp' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const { code, filename, baseUrl, mcpOptions } = JSON.parse(body);
+        if (!code || !filename) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: '`code` and `filename` are required' }));
+          return;
+        }
+
+        console.log(`[run-test-mcp] Starting MCP execution for ${filename} (using Ollama)`);
+        const mcpRunner = require('./mcp/server-mcp-runner.js');
+        const result = await mcpRunner.runTestWithMCP(
+          code,
+          filename,
+          baseUrl || process.env.TEST_BASE_URL || 'http://localhost:3001',
+          null,
+          mcpOptions || {}
+        );
+
+        console.log(`[run-test-mcp] Done — success=${result.success}, healed=${!!result.healedCode}`);
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify(result));
+      } catch (err) {
+        console.error('[run-test-mcp] Error:', err.message);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: err.message }));
       }

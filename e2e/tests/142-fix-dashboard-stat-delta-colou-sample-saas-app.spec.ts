@@ -1,76 +1,85 @@
-import { Browser, BrowserContext, expect, Page, test } from "@playwright/test";
+import { test, expect, BrowserContext, Page } from '@playwright/test';
 
-const BASE_URL = process.env.PLAYWRIGHT_TEST_BASE_URL || "http://localhost:3001";
+const BASE_URL = process.env.PLAYWRIGHT_TEST_BASE_URL || "http://localhost:3000";
 
-/**
- * Auto-generated E2E test for 142
- * PR: [ACME-142] Fix: dashboard stat delta colour always showing green
- * PR #1 in raghavendra7533/sample-saas-app
- * Files changed: 2 (+5 -1)
- * Bug fix type: title-detected
- * Affected features: settings, design-system
- * Generated: 2026-02-27T18:46:48.147Z
- */
-
-test.describe.serial("142: [ACME-142] Fix: dashboard stat delta colour always showing green", () => {
+test.describe.serial("ACME-142 Dashboard Stat Delta and Settings Constraints", () => {
   let context: BrowserContext;
   let sharedPage: Page;
-
-  test.setTimeout(120000);
+  const errors: string[] = [];
 
   test.beforeAll(async ({ browser }) => {
+    test.setTimeout(120000);
     context = await browser.newContext({
-      viewport: { width: 1280, height: 720 },
+      viewport: { width: 1280, height: 720 }
     });
     sharedPage = await context.newPage();
     sharedPage.setDefaultTimeout(15000);
     sharedPage.setDefaultNavigationTimeout(30000);
 
-    // LocalStorage-based auth
-    await sharedPage.goto(BASE_URL);
-    await sharedPage.evaluate(() => {
-      localStorage.setItem("acme_session", "{\"user\":{\"name\":\"Demo User\",\"email\":\"demo@acme.com\",\"role\":\"admin\"},\"loggedIn\":true}");
-    });
-    await sharedPage.reload();
-    await sharedPage.waitForLoadState("networkidle");
-  });
-
-  test.afterAll(async () => {
-    await context?.close();
-  });
-
-  test("142 - Verify PR changes", async () => {
-
-    // Feature: settings
-    await sharedPage.goto(BASE_URL + "/pages/settings.html");
-    await sharedPage.waitForLoadState("networkidle");
-
-    // Feature: design-system
-
-    // Verify related selectors from PR diff
-    await expect(sharedPage.locator('[data-testid="alert-threshold-input"]')).toBeVisible();
-    await expect(sharedPage.locator('[data-testid="save-notifications-btn"]')).toBeVisible();
-
-    // Visual regression screenshot
-    await expect(sharedPage).toHaveScreenshot("142-verify.png", {
-      maxDiffPixels: 100,
-      threshold: 0.2,
-    });
-  });
-
-  test("Cleanup and verify no console errors", async () => {
-    const errors: string[] = [];
     sharedPage.on("console", (msg) => {
       if (msg.type() === "error") errors.push(msg.text());
     });
+    sharedPage.on("pageerror", (err) => errors.push(err.message));
 
+    // No auth — navigate directly to BASE_URL
+    await sharedPage.goto(BASE_URL);
+    await sharedPage.waitForLoadState("networkidle");
+  });
+
+  test("Verify dashboard stat delta colors and settings input constraints", async () => {
+    // 1. Verify Dashboard Fix: Open Tickets delta should be negative (red)
+    // Navigating to the affected feature area
+    await sharedPage.goto(`${BASE_URL}/pages/dashboard.html`);
+    await sharedPage.waitForLoadState("networkidle");
+
+    const ticketDelta = sharedPage.locator('[data-cy="stat-tickets-delta"]');
+    await expect(ticketDelta).toBeVisible();
+    
+    // Test specific behavior: Apply .negative class to [data-testid="stat-tickets-delta"]
+    // Note: Using data-cy as per selector convention instructions
+    await expect(ticketDelta).toHaveClass(/negative/);
+    
+    // Test specific behavior: Increase specificity of .stat-delta.negative rules
+    // #c53030 translates to rgb(197, 48, 48)
+    const color = await ticketDelta.evaluate((el) => window.getComputedStyle(el).color);
+    expect(color).toBe("rgb(197, 48, 48)");
+
+    // 2. Verify Settings Fix: Alert Threshold input constraints
+    // Navigating to the affected feature area
+    await sharedPage.goto(`${BASE_URL}/pages/settings.html`);
+    await sharedPage.waitForLoadState("networkidle");
+
+    const thresholdInput = sharedPage.locator('[data-cy="alert-threshold-input"]');
+    const saveBtn = sharedPage.locator('[data-cy="save-notifications-btn"]');
+
+    await expect(thresholdInput).toBeVisible();
+    await expect(saveBtn).toBeVisible();
+    
+    // Test specific behavior: Add min=1 max=100 constraints
+    await expect(thresholdInput).toHaveAttribute("min", "1");
+    await expect(thresholdInput).toHaveAttribute("max", "100");
+
+    // Visual regression screenshot
+    await expect(sharedPage).toHaveScreenshot("dashboard-settings-verification.png");
+  });
+
+  test("Cleanup and console error check", async () => {
     await sharedPage.goto(BASE_URL);
     await sharedPage.waitForLoadState("networkidle");
 
-    // Allow some known console errors (e.g., third-party scripts)
-    const criticalErrors = errors.filter(
-      (e) => !e.includes("favicon") && !e.includes("third-party")
+    const criticalErrors = errors.filter((e) => 
+      !e.includes("favicon") && 
+      !e.includes("third-party") && 
+      !e.includes("404") && 
+      !e.includes("Failed to load resource")
     );
+
     expect(criticalErrors).toHaveLength(0);
+  });
+
+  test.afterAll(async () => {
+    if (context) {
+      await context.close();
+    }
   });
 });

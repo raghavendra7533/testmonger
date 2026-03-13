@@ -274,6 +274,7 @@ export default function GenerateView() {
               testCode={generation.testCode}
               testFileName={generation.testFileName}
               baseUrl={config.baseUrl}
+              onHealedCodeAvailable={(healedCode) => setTestCode(healedCode, generation.testFileName)}
             />
           )}
 
