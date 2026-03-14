@@ -274,6 +274,10 @@ export default function GenerateView() {
               testCode={generation.testCode}
               testFileName={generation.testFileName}
               baseUrl={config.baseUrl}
+              authConfig={{
+                strategy: config.authStrategy,
+                formLogin: config.authStrategy === 'form-login' ? config.formLogin : undefined,
+              }}
               onHealedCodeAvailable={(healedCode) => setTestCode(healedCode, generation.testFileName)}
             />
           )}

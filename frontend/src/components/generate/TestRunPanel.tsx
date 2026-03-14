@@ -33,10 +33,23 @@ interface RunResult {
   retryCount?: number;
 }
 
+interface AuthConfig {
+  strategy: 'form-login' | 'localstorage' | 'none';
+  formLogin?: {
+    loginPath: string;
+    emailSelector: string;
+    passwordSelector: string;
+    submitSelector: string;
+    testEmail: string;
+    testPassword: string;
+  };
+}
+
 interface Props {
   testCode: string;
   testFileName: string;
   baseUrl: string;
+  authConfig?: AuthConfig;
   onHealedCodeAvailable?: (code: string) => void;
 }
 
@@ -48,7 +61,7 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-export default function TestRunPanel({ testCode, testFileName, baseUrl, onHealedCodeAvailable }: Props) {
+export default function TestRunPanel({ testCode, testFileName, baseUrl, authConfig, onHealedCodeAvailable }: Props) {
   const [runState, setRunState] = useState<RunState>('idle');
   const [runMode, setRunMode] = useState<RunMode>('standard');
   const [result, setResult] = useState<RunResult | null>(null);
@@ -122,7 +135,7 @@ export default function TestRunPanel({ testCode, testFileName, baseUrl, onHealed
           code: testCode,
           filename: testFileName,
           baseUrl: baseUrl || 'http://localhost:3001',
-          mcpOptions: { maxRetries: 3 },
+          mcpOptions: { maxRetries: 3, auth: authConfig },
         }),
       });
 

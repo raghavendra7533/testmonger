@@ -122,7 +122,13 @@ async function runAgenticLoop(client, tools, testCode, baseUrl) {
   const systemPrompt = `You are a browser automation agent executing a Playwright test.
 Execute the test steps by calling browser tools. After each step check whether it succeeded.
 If a step fails, start your message with "STEP FAILED:" followed by the failing line.
-If all steps pass, end with "TEST PASSED". Do not explain code — just execute.`;
+If all steps pass, end with "TEST PASSED". Do not explain code — just execute.
+
+IMPORTANT RULES:
+- Ignore CSS, JS, image, or favicon loading errors — these are not test failures.
+- Only report "STEP FAILED:" when an actual assertion fails (element not found, wrong text, wrong attribute).
+- Always use browser_snapshot to inspect the page before deciding an element is missing.
+- Never give up after navigation — always proceed to execute the test assertions.`;
 
   const messages = [
     {
@@ -211,6 +217,20 @@ Return the complete corrected test code with the failing line fixed. No markdown
 
 // ── Public API ─────────────────────────────────────────────────────────────────
 
+async function performAuth(client, baseUrl, auth) {
+  if (!auth || auth.strategy !== 'form-login' || !auth.formLogin) return;
+  const fl = auth.formLogin;
+  const loginUrl = baseUrl + (fl.loginPath || '');
+  console.log(`[mcp-runner] Logging in via form at ${loginUrl}`);
+  await callTool(client, 'browser_navigate', { url: loginUrl });
+  await callTool(client, 'browser_fill', { selector: fl.emailSelector, value: fl.testEmail });
+  await callTool(client, 'browser_fill', { selector: fl.passwordSelector, value: fl.testPassword });
+  await callTool(client, 'browser_click', { selector: fl.submitSelector });
+  // Wait for navigation after login
+  try { await callTool(client, 'browser_wait_for_load_state', { state: 'networkidle' }); } catch {}
+  console.log('[mcp-runner] Login complete');
+}
+
 async function runTestWithMCP(code, filename, baseUrl, _apiKey, options = {}) {
   const maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
 
@@ -223,6 +243,7 @@ async function runTestWithMCP(code, filename, baseUrl, _apiKey, options = {}) {
 
   try {
     client = await createMcpClient();
+    await performAuth(client, baseUrl, options.auth);
     const mcpTools = await listTools(client);
     const tools = buildOllamaTools(mcpTools);
 
