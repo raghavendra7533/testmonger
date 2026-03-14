@@ -29,7 +29,11 @@ export interface TestContext {
 export function analyzePR(prInfo: PRInfo, config: AgentConfig = DEFAULT_AGENT_CONFIG): AnalyzedPR {
   const ticketId = extractTicketId(prInfo.title, prInfo.body, config);
   const bugFixType = detectBugFixType(prInfo);
-  const affectedFeatures = detectAffectedFeatures(prInfo.files, config);
+  let affectedFeatures = detectAffectedFeatures(prInfo.files, config);
+  // B1: When no configured feature mappings match, synthesize features from changed paths
+  if (affectedFeatures.length === 0) {
+    affectedFeatures = synthesizeFallbackFeatures(prInfo.files);
+  }
   const testContext = extractTestContext(prInfo, config);
   const suggestedTestPath = suggestTestPath(config, ticketId, prInfo.number);
 
@@ -272,6 +276,44 @@ function extractTestContext(prInfo: PRInfo, config: AgentConfig): TestContext {
     pageMetadata,
     isStandaloneApp,
   };
+}
+
+/**
+ * B1: When featureMappings produces no matches, derive a meaningful feature label
+ * from the changed file paths so the generator always has something to work with.
+ * Precedence: components > pages > api > hooks > utils > generic filename stem.
+ */
+function synthesizeFallbackFeatures(files: PRFile[]): string[] {
+  const features = new Set<string>();
+
+  for (const file of files) {
+    const parts = file.filename.split("/").map((p) => p.toLowerCase());
+
+    // Try to identify a meaningful segment from well-known directory names
+    const knownDirs = ["components", "pages", "views", "screens", "features",
+                       "api", "routes", "hooks", "utils", "services", "store"];
+    for (const dir of knownDirs) {
+      const idx = parts.indexOf(dir);
+      if (idx !== -1 && parts[idx + 1]) {
+        // Use the next path segment (e.g. components/Dashboard/… → "Dashboard")
+        const segment = parts[idx + 1].replace(/\.[^.]+$/, ""); // strip extension
+        if (segment && segment.length > 1) {
+          features.add(segment.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()));
+          break;
+        }
+      }
+    }
+
+    if (features.size === 0) {
+      // Fallback: use the filename stem (without extension)
+      const stem = parts[parts.length - 1].replace(/\.[^.]+$/, "");
+      if (stem && stem.length > 1) {
+        features.add(stem.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()));
+      }
+    }
+  }
+
+  return Array.from(features).slice(0, 3); // cap at 3 features
 }
 
 /**

@@ -49,6 +49,8 @@ export function loadConfig(cliConfigPath?: string): AgentConfig {
   if (process.env.TEST_PASSWORD) merged.formLogin.testPassword = process.env.TEST_PASSWORD;
   if (process.env.TEST_REPO_OWNER) merged.targetRepo.owner = process.env.TEST_REPO_OWNER;
   if (process.env.TEST_REPO_NAME) merged.targetRepo.name = process.env.TEST_REPO_NAME;
+  // B2: honour USE_MCP env var (truthy string → enable MCP)
+  if (process.env.USE_MCP) merged.useMcp = process.env.USE_MCP !== "0" && process.env.USE_MCP !== "false";
 
   return merged;
 }

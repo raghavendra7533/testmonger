@@ -64,6 +64,19 @@ async function _doFormLogin(config: AgentConfig): Promise<void> {
 
   // Wait for post-login state
   await new Promise((r) => setTimeout(r, 3000));
+
+  // B3: Validate that login actually succeeded by checking the post-login snapshot
+  if (fl.authValidationSelector) {
+    const snapshot = await mcpBrowser.getSnapshot();
+    if (!snapshot.includes(fl.authValidationSelector.replace(/[\[\]"'=]/g, "").split(/\s+/)[0])) {
+      throw new Error(
+        `[MCP] Auth validation failed — selector "${fl.authValidationSelector}" not found in post-login snapshot. ` +
+        "Check testEmail/testPassword credentials or authValidationSelector config."
+      );
+    }
+    console.log(`  [MCP] Auth validated (found: ${fl.authValidationSelector})`);
+  }
+
   console.log("  [MCP] Login complete");
 }
 

@@ -29,10 +29,13 @@ interface RunOptions {
  * All platform-specific behaviour is driven by the loaded AgentConfig.
  */
 async function runAgent(options: RunOptions): Promise<void> {
-  const { sourcePRUrl, configPath, dryRun = false, skipValidation = false, runTest = false, useMcp = false } = options;
+  const { sourcePRUrl, configPath, dryRun = false, skipValidation = false, runTest = false } = options;
 
   // Load config: --config file → .pr-agent.json → env vars → defaults
   const config: AgentConfig = loadConfig(configPath);
+
+  // B2: --use-mcp CLI flag OR config.useMcp OR USE_MCP env var (loader already applied env)
+  const useMcp = options.useMcp === true || config.useMcp === true;
 
   // Resolve target repo: config → env vars (already applied by loader)
   const testRepoOwner = config.targetRepo.owner || process.env.TEST_REPO_OWNER || "";
@@ -177,8 +180,11 @@ async function runAgent(options: RunOptions): Promise<void> {
     }
 
     const branchName = `test/${analysis.ticketId || `pr-${prNumber}`}-${Date.now()}`;
-    console.log(`\nStep 6: Creating branch: ${branchName}`);
-    await createBranch(testRepoOwner, testRepoName, branchName);
+    // B6: use the actual default branch of the test repo instead of hardcoded 'main'
+    const { getDefaultBranch } = await import("./github/client");
+    const testRepoDefaultBranch = await getDefaultBranch(testRepoOwner, testRepoName);
+    console.log(`\nStep 6: Creating branch: ${branchName} (from ${testRepoDefaultBranch})`);
+    await createBranch(testRepoOwner, testRepoName, branchName, testRepoDefaultBranch);
     console.log("  Branch created successfully");
 
     // Step 7: Commit test file
@@ -196,7 +202,7 @@ Title: ${prInfo.title}`;
     const prBody = generatePRBody(analysis, testPath);
     const prTitle = `test: ${analysis.ticketId || `PR-${prNumber}`} - ${prInfo.title.slice(0, 50)}`;
 
-    const newPR = await createPR(testRepoOwner, testRepoName, prTitle, prBody, branchName);
+    const newPR = await createPR(testRepoOwner, testRepoName, prTitle, prBody, branchName, testRepoDefaultBranch);
 
     console.log("\n========================================");
     console.log("  Agent Complete!");

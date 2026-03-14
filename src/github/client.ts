@@ -22,6 +22,10 @@ export interface PRInfo {
   labels: string[];
   files: PRFile[];
   diff: string;
+  /** SHA of the PR head commit */
+  headSha: string;
+  /** The base branch this PR targets (e.g. 'main', 'develop', 'master') */
+  baseBranch: string;
 }
 
 export interface PRFile {
@@ -34,7 +38,17 @@ export interface PRFile {
 }
 
 /**
- * Fetch PR details including files and diff
+ * Fetch the default branch name for a repo (e.g. 'main', 'master', 'develop').
+ * B6: prevents hardcoded 'main' assumption.
+ */
+export async function getDefaultBranch(owner: string, repo: string): Promise<string> {
+  const { data } = await octokit.repos.get({ owner, repo });
+  return data.default_branch;
+}
+
+/**
+ * Fetch PR details including files and diff.
+ * B7: files are fetched sequentially to avoid GitHub secondary-rate-limit bursts.
  */
 export async function getPRInfo(
   owner: string,
@@ -48,6 +62,9 @@ export async function getPRInfo(
     pull_number: prNumber,
   });
 
+  const headSha = pr.head.sha;
+  const baseBranch = pr.base.ref; // e.g. 'main', 'develop', 'master'
+
   // Get PR files
   const { data: listFilesData } = await octokit.pulls.listFiles({
     owner,
@@ -55,37 +72,34 @@ export async function getPRInfo(
     pull_number: prNumber,
   });
 
-  // Get raw file content for each file to provide full context to the LLM
-  const files: PRFile[] = await Promise.all(
-    listFilesData.map(async (f) => {
-      let content = "";
-      try {
-        if (f.status !== "removed") {
-          const { data } = await octokit.repos.getContent({
-            owner,
-            repo,
-            path: f.filename,
-            ref: pr.head.sha, // Fetch the file exactly as it is in the PR head branch
-          });
-
-          if (!Array.isArray(data) && data.type === "file" && data.content) {
-            content = Buffer.from(data.content, "base64").toString("utf-8");
-          }
+  // B7: Fetch file content sequentially to avoid triggering GitHub's secondary rate limit
+  const files: PRFile[] = [];
+  for (const f of listFilesData) {
+    let content = "";
+    try {
+      if (f.status !== "removed") {
+        const { data } = await octokit.repos.getContent({
+          owner,
+          repo,
+          path: f.filename,
+          ref: headSha,
+        });
+        if (!Array.isArray(data) && data.type === "file" && data.content) {
+          content = Buffer.from(data.content, "base64").toString("utf-8");
         }
-      } catch (e) {
-        console.warn(`Could not fetch full content for ${f.filename}:`, e);
       }
-
-      return {
-        filename: f.filename,
-        status: f.status,
-        additions: f.additions,
-        deletions: f.deletions,
-        patch: f.patch,
-        content: content, // include the full raw content 
-      };
-    })
-  );
+    } catch (e) {
+      console.warn(`Could not fetch full content for ${f.filename}:`, e);
+    }
+    files.push({
+      filename: f.filename,
+      status: f.status,
+      additions: f.additions,
+      deletions: f.deletions,
+      patch: f.patch,
+      content,
+    });
+  }
 
   // Get PR diff
   const { data: diff } = await octokit.pulls.get({
@@ -106,6 +120,8 @@ export async function getPRInfo(
     labels: pr.labels.map((l) => (typeof l === "string" ? l : l.name || "")),
     files,
     diff: diff as unknown as string,
+    headSha,
+    baseBranch,
   };
 }
 

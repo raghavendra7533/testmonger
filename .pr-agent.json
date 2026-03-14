@@ -1,0 +1,47 @@
+{
+  "baseUrl": "http://localhost:3001",
+  "framework": "react",
+  "authStrategy": "form-login",
+  "formLogin": {
+    "loginPath": "/login",
+    "emailSelector": "[data-testid='email-input']",
+    "passwordSelector": "[data-testid='password-input']",
+    "submitSelector": "[data-testid='login-submit']",
+    "testEmail": "demo@acme.com",
+    "testPassword": "password123",
+    "postLoginWait": "networkidle",
+    "authValidationSelector": "[data-testid='dashboard-main']"
+  },
+  "localStorageAuth": { "entries": [] },
+  "featureMappings": [
+    {
+      "id": "dashboard",
+      "name": "Dashboard",
+      "patterns": ["Dashboard", "dashboard", "stat", "ticket", "revenue"],
+      "entryUrl": "/dashboard",
+      "entrySelector": "[data-testid='dashboard']",
+      "navigationSteps": []
+    }
+  ],
+  "selectorConvention": "data-testid",
+  "customSelectorAttribute": "",
+  "ticketPatterns": [
+    { "id": "1", "pattern": "\\[?(#\\d+)\\]?", "label": "#" }
+  ],
+  "outputDirectory": "e2e/tests/",
+  "fileNamingTemplate": "{identifier}-{cleanTitle}-{repoName}.spec.ts",
+  "targetRepo": {
+    "owner": "raghavendra7533",
+    "name": "testmonger"
+  },
+  "playwright": {
+    "actionTimeout": 15000,
+    "navigationTimeout": 30000,
+    "testTimeout": 120000,
+    "viewportWidth": 1280,
+    "viewportHeight": 720,
+    "screenshotDiffPixels": 100,
+    "screenshotThreshold": 0.2
+  },
+  "useMcp": false
+}

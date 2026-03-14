@@ -144,12 +144,13 @@ Begin by navigating to ${baseUrl}, then execute each test step using browser too
     // Collect text parts
     const candidate = response.candidates?.[0];
     const parts = candidate?.content?.parts ?? [];
-    const textParts = parts.filter((p: any) => p.text);
+    const textParts = parts.filter((p: any) => typeof p.text === "string");
     for (const p of textParts) {
-      newLogs.push(p.text);
-      if (p.text.includes("TEST PASSED")) passed = true;
-      if (p.text.startsWith("STEP FAILED:")) {
-        failedStep = p.text.replace("STEP FAILED:", "").trim();
+      const text: string = p.text as string;
+      newLogs.push(text);
+      if (text.includes("TEST PASSED")) passed = true;
+      if (text.startsWith("STEP FAILED:")) {
+        failedStep = text.replace("STEP FAILED:", "").trim();
       }
     }
 

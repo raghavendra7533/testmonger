@@ -31,6 +31,12 @@ export interface AgentConfig {
     /** Emitted as process.env.TEST_PASSWORD fallback in generated code */
     testPassword: string;
     postLoginWait: 'networkidle' | 'url-match' | 'selector-visible';
+    /**
+     * B3: CSS selector that must be visible in the snapshot after login to confirm
+     * auth succeeded (e.g. '[data-testid="user-avatar"]', 'nav[aria-label="main"]').
+     * Leave empty to skip post-login validation.
+     */
+    authValidationSelector?: string;
   };
 
   /** localStorage key-value pairs to inject (used when authStrategy === 'localstorage') */

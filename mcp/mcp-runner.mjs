@@ -58,9 +58,13 @@ async function createMcpClient() {
   const mcpPkgJson = require.resolve('@playwright/mcp/package.json');
   const mcpBin = path.join(path.dirname(mcpPkgJson), 'cli.js');
 
+  const headless = process.env.MCP_BROWSER_HEADLESS !== 'false';
+  const mcpArgs = ['--browser', 'chromium'];
+  if (headless) mcpArgs.push('--headless');
+
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [mcpBin, '--browser', 'chromium', '--headless'],
+    args: [mcpBin, ...mcpArgs],
   });
 
   const client = new Client(

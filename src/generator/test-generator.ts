@@ -37,14 +37,22 @@ export function generateTestPath(
 
 // ── Main generator ────────────────────────────────────────────────────────────
 
-import Anthropic from "@anthropic-ai/sdk";
+const OLLAMA_BASE = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:3b";
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+async function ollamaChat(messages: Array<{ role: string; content: string }>): Promise<string> {
+  const res = await fetch(`${OLLAMA_BASE}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: OLLAMA_MODEL, messages, stream: false }),
+  });
+  if (!res.ok) throw new Error(`Ollama error ${res.status}: ${await res.text()}`);
+  const data = await res.json() as any;
+  return data.choices?.[0]?.message?.content ?? "";
+}
 
 /**
- * Generate a Playwright test based on analyzed PR and full file content using Claude 3.5 Sonnet.
+ * Generate a Playwright test based on analyzed PR and full file content via Ollama.
  */
 export async function generateTest(
   analysis: AnalyzedPR,
@@ -64,21 +72,18 @@ export async function generateTest(
   }
 
   // If a live accessibility snapshot was captured via MCP (--use-mcp), include it
-  // so Claude uses real selectors rather than guessing from diff text.
   const mcpContext = (analysis as any).mcpContext as { snapshot: string; url: string } | undefined;
   const mcpSection = mcpContext
     ? `\nLIVE PAGE SNAPSHOT (accessibility tree captured from ${mcpContext.url}):\n${mcpContext.snapshot}\n\nUse element roles, names, and accessible text from this snapshot to write precise locators.\nPrefer getByRole/getByLabel/getByText over guessed attribute selectors.\n`
     : "";
 
-  const prompt = `You are a Lead SDET. Based on the following Git Diffs and Full File Contexts from a PR, generate a comprehensive, robust Playwright E2E test in TypeScript.
-
+  const systemPrompt = `You are a Lead SDET. Generate Playwright E2E tests in TypeScript.
 RULES:
-1. Use Page Object Model (POM) patterns where applicable or structure the test cleanly.
-2. Focus on verifying the user impact of the changes described in the PR.
-3. Prioritize using robust selectors like data-testid or data-cy.
-4. ONLY return the valid, compilable TypeScript code blocks. Do not add markdown formatting \`\`\`typescript backticks around your response. Assume the returned string will be written directly to a .spec.ts file.
-5. Setup the test with import { test, expect } from '@playwright/test';
-6. The test should be descriptive, and include comments explaining what is being verified.
+1. Use import { test, expect } from '@playwright/test';
+2. Use data-testid selectors wherever available.
+3. Return ONLY valid TypeScript code — no markdown fences, no explanations.`;
+
+  const userPrompt = `Generate a comprehensive Playwright E2E test for this PR:
 
 PR Title: ${prInfo.title}
 PR Description: ${prInfo.body || "No description provided."}
@@ -87,25 +92,14 @@ CHANGES AND CONTEXT:
 ${combinedContext}${mcpSection}`;
 
   try {
-    const response = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
-      max_tokens: 4096,
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    // The SDK guarantees text content if that's what was returned by the model
-    let generatedCode = "";
-    if (response.content[0].type === "text") {
-      generatedCode = response.content[0].text;
-    }
-
-    // strip any stray markdown codeblocks if claude decides to be "helpful"
-    generatedCode = generatedCode.replace(/^\`\`\`typescript\n|\`\`\`ts\n/i, "");
-    generatedCode = generatedCode.replace(/\n\`\`\`$/i, "");
+    let generatedCode = await ollamaChat([
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ]);
+    generatedCode = generatedCode.replace(/^```(typescript|ts)?\n/i, "").replace(/\n```$/i, "");
     return generatedCode;
-
   } catch (err) {
-    console.error("Failed to generate test using Anthropic:", err);
+    console.error("Failed to generate test using Ollama:", err);
     throw err;
   }
 }

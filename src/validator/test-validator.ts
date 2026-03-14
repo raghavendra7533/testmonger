@@ -18,11 +18,23 @@ export interface ValidatorOptions {
   timeout?: number; // Execution timeout in ms (default: 60000)
 }
 
-import Anthropic from "@anthropic-ai/sdk";
+const OLLAMA_BASE = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:3b";
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+async function ollamaFix(prompt: string): Promise<string> {
+  const res = await fetch(`${OLLAMA_BASE}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: OLLAMA_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      stream: false,
+    }),
+  });
+  if (!res.ok) throw new Error(`Ollama error ${res.status}: ${await res.text()}`);
+  const data = await res.json() as any;
+  return data.choices?.[0]?.message?.content ?? "";
+}
 
 /**
  * Validate generated test code before committing.
@@ -82,29 +94,21 @@ export async function validateTest(
         if (retries < maxRetries) {
           // Feed the error back to LLM to self-correct
           try {
-            const prompt = `You previously generated a Playwright test script, but it failed TypeScript compilation.
-            
-Here is the failing code:
+            const prompt = `A Playwright TypeScript test failed compilation. Fix the TypeScript errors and return ONLY the corrected code. No markdown fences, no explanations.
+
+FAILING CODE:
 ${testCode}
 
-Here are the compiler errors:
-${syntaxResult.errors.join("\\n")}
+COMPILER ERRORS:
+${syntaxResult.errors.join("\n")}`;
 
-Please fix the TypeScript errors and return ONLY the completely corrected valid TypeScript code. Do not include markdown formatting or explanations.`;
-
-            const response = await anthropic.messages.create({
-              model: "claude-3-5-sonnet-20241022",
-              max_tokens: 4096,
-              messages: [{ role: "user", content: prompt }],
-            });
-
-            if (response.content[0].type === "text") {
-              testCode = response.content[0].text;
-              testCode = testCode.replace(/^\`\`\`(typescript|ts)?\n/i, "").replace(/\n\`\`\`$/i, "");
+            const fixed = await ollamaFix(prompt);
+            if (fixed) {
+              testCode = fixed.replace(/^```(typescript|ts)?\n/i, "").replace(/\n```$/i, "");
             }
           } catch (llmError) {
-             console.error("  [Validator] LLM correction failed:", llmError);
-             break; // Stop retrying if LLM call fails
+            console.error("  [Validator] LLM correction failed:", llmError);
+            break;
           }
         }
       }
@@ -113,6 +117,14 @@ Please fix the TypeScript errors and return ONLY the completely corrected valid 
 
     // Step 2 & 3: Only run these if syntax is finally valid
     if (result.syntaxValid) {
+      // B5: Hard gate — reject tests that are cosmetically valid but substantively empty
+      const substanceCheck = hasSubstantiveContent(testCode);
+      if (!substanceCheck.ok) {
+        result.syntaxValid = false; // treat as invalid so caller rejects commit
+        result.errors.push(`Validation theatre detected: ${substanceCheck.reason}`);
+        return result;
+      }
+
       // Step 2: Static Code Analysis
       console.log("  [Validator] Running static analysis...");
       const analysisResult = analyzeTestCode(testCode);
@@ -195,6 +207,33 @@ async function validateSyntax(
     
     return { valid: false, errors };
   }
+}
+
+/**
+ * B5: Hard gate against "validation theatre" — tests that compile but contain no
+ * real assertions or meaningful browser interactions.
+ */
+function hasSubstantiveContent(testCode: string): { ok: boolean; reason?: string } {
+  // Must have at least one expect() or screenshot assertion
+  const hasAssertion = /expect\s*\(/.test(testCode) || /toHaveScreenshot/.test(testCode);
+  if (!hasAssertion) {
+    return { ok: false, reason: "no expect() assertions found — test verifies nothing" };
+  }
+
+  // Must have at least one navigation or interaction (not just comments)
+  const hasAction = /goto\s*\(|navigate\s*\(|click\s*\(|fill\s*\(|type\s*\(|getBy/.test(testCode);
+  if (!hasAction) {
+    return { ok: false, reason: "no browser actions found (goto/click/fill/getBy)" };
+  }
+
+  // Reject pure placeholder bodies
+  const strippedComments = testCode.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  const nonWhitespace = strippedComments.replace(/\s/g, "");
+  if (nonWhitespace.length < 100) {
+    return { ok: false, reason: "test body is effectively empty after stripping comments" };
+  }
+
+  return { ok: true };
 }
 
 /**
