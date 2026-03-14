@@ -1,55 +1,48 @@
-import { test, expect, type BrowserContext, type Page } from "@playwright/test";
+import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 
 const BASE_URL = process.env.PLAYWRIGHT_TEST_BASE_URL || "http://localhost:3001/sample-saas-app";
 
-test.describe.serial("ACME-142: Dashboard Stat Delta and Settings Validation", () => {
-  let sharedContext: BrowserContext;
+test.describe.serial("ACME-142 Dashboard Stat Delta and Settings Constraints", () => {
+  let context: BrowserContext;
   let sharedPage: Page;
-  const consoleErrors: string[] = [];
+  const errors: string[] = [];
 
   test.beforeAll(async ({ browser }) => {
-    sharedContext = await browser.newContext({
-      viewport: { width: 1280, height: 720 },
+    context = await browser.newContext({
+      viewport: { width: 1280, height: 720 }
     });
-    sharedPage = await sharedContext.newPage();
-
-    // Set timeouts
+    sharedPage = await context.newPage();
+    
+    // Set timeouts as per requirements
     sharedPage.setDefaultTimeout(15000);
     sharedPage.setDefaultNavigationTimeout(30000);
 
-    // Monitor console errors
+    // Monitor console errors for cleanup test
     sharedPage.on("console", (msg) => {
-      if (msg.type() === "error") consoleErrors.push(msg.text());
+      if (msg.type() === "error") errors.push(msg.text());
     });
     sharedPage.on("pageerror", (err) => {
-      consoleErrors.push(err.message);
+      errors.push(err.message);
     });
 
-    // No auth required - navigate to base
+    // Authentication Setup: No auth — navigate directly to BASE_URL
     await sharedPage.goto(BASE_URL);
     await sharedPage.waitForLoadState("networkidle");
   });
 
-  test.afterAll(async () => {
-    await sharedContext.close();
-  });
-
-  test("Verify dashboard stat delta colors and settings input constraints", async () => {
-    test.setTimeout(120000);
-
+  test("Verify stat delta colors and settings input constraints", async () => {
     // 1. Verify Dashboard Stat Delta Fix
     await sharedPage.goto(`${BASE_URL}/pages/dashboard.html`);
     await sharedPage.waitForLoadState("networkidle");
 
     const ticketDelta = sharedPage.locator('[data-cy="stat-tickets-delta"]');
     await expect(ticketDelta).toBeVisible();
-
-    // Verify the fix: upward trend in tickets should have .negative class and red color
-    await expect(ticketDelta).toHaveClass(/negative/);
     
-    // Verify CSS specificity fix (color: #c53030 -> rgb(197, 48, 48))
-    const color = await ticketDelta.evaluate((el) => window.getComputedStyle(el).color);
-    expect(color).toBe("rgb(197, 48, 48)");
+    // Verify the fix: upward trend for tickets should be negative (red)
+    // CSS specificity fix check: color #c53030 is rgb(197, 48, 48)
+    await expect(ticketDelta).toHaveClass(/negative/);
+    await expect(ticketDelta).toHaveCSS("color", "rgb(197, 48, 48)");
+    await expect(ticketDelta).toHaveCSS("font-weight", "500");
 
     // 2. Verify Settings Input Constraints
     await sharedPage.goto(`${BASE_URL}/pages/settings.html`);
@@ -65,22 +58,26 @@ test.describe.serial("ACME-142: Dashboard Stat Delta and Settings Validation", (
     await expect(thresholdInput).toHaveAttribute("min", "1");
     await expect(thresholdInput).toHaveAttribute("max", "100");
 
-    // Visual regression check
-    await expect(sharedPage).toHaveScreenshot("settings-page-validation.png");
+    // Visual Regression Check
+    await expect(sharedPage).toHaveScreenshot("dashboard-settings-validation.png");
   });
 
   test("Cleanup and console error check", async () => {
     await sharedPage.goto(BASE_URL);
     await sharedPage.waitForLoadState("networkidle");
 
-    const criticalErrors = consoleErrors.filter(
-      (e) =>
-        !e.includes("favicon") &&
-        !e.includes("third-party") &&
-        !e.includes("404") &&
+    const criticalErrors = errors.filter(
+      (e) => 
+        !e.includes("favicon") && 
+        !e.includes("third-party") && 
+        !e.includes("404") && 
         !e.includes("Failed to load resource")
     );
 
     expect(criticalErrors, `Found critical console errors: ${criticalErrors.join(", ")}`).toHaveLength(0);
+  });
+
+  test.afterAll(async () => {
+    await context.close();
   });
 });

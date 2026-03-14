@@ -3,3 +3,7 @@ node_modules/
 dist/
 .DS_Store
 automation-tests-2.0/
+
+# Playwright test artifacts
+test-results/
+playwright-report/
